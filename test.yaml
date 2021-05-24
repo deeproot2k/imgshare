@@ -1,0 +1,164 @@
+---
+- name: configure hadoop
+  hosts:  hdp1, hdp2, hdp3
+  remote_user: root
+
+  tasks:
+  #- name: Copy authorized_key file to systems 
+  #  authorized_key:
+  #    user: root
+  #    state: present
+  #    key: "{{ lookup('file', '/root/.ssh/id_rsa.pub') }}"
+
+  - name: Allow root only from ssh key
+    lineinfile: dest=/etc/ssh/sshd_config regexp="^PermitRootLogin" line="PermitRootLogin without-password" state=present
+    notify:
+      - restart sshd
+
+  - name: Install Java
+    yum:
+      name: 
+        -  java-11-openjdk
+        -  java-11-openjdk-devel
+        -  scala
+      state: latest
+
+  - name: Add hadoop group
+    group:
+      name: hadoop
+      state: present
+      gid: 1099
+
+  - name: Add hadoop users
+    user:
+      name: hadoop
+      home: /opt/hadoop
+      uid: 1099
+      state: present
+      group: hadoop
+      move_home: yes
+
+  #- name: Copy authorized_key file to systems 
+  #  authorized_key:
+  #    user: hadoop
+  #    state: present
+  #    key: "{{ lookup('file', '/opt/hadoop/.ssh/id_rsa.pub') }}"
+
+  - name: Download the hadoop distribution 
+    get_url:
+      url: https://archive.apache.org/dist/hadoop/common/hadoop-3.3.0/hadoop-3.3.0.tar.gz
+      dest: /opt/hadoop/hadoop-3.3.0.tar.gz
+      mode: 0644
+
+  #- name: Download spark
+  #  get_url:
+  #    url: https://mirrors.gigenet.com/apache/spark/spark-3.1.1/spark-3.1.1-bin-hadoop3.2.tgz
+  #    dest: /opt/hadoop/spark-3.1.1-bin-hadoop3.2.tgz
+  #    mode: 0644
+
+  - name: Extract hadoop
+    unarchive:
+      src: /opt/hadoop/hadoop-3.3.0.tar.gz
+      dest: /opt/hadoop/
+      owner: hadoop
+      group: hadoop
+      creates: /opt/hadoop/hadoop-3.3.0
+
+  #- name: Extract spark
+  #  unarchive:
+  #    src: /opt/hadoop/spark-3.1.1-bin-hadoop3.2.tgz
+  #    dest: /opt/hadoop/
+  #    owner: hadoop
+  #    group: hadoop
+  #    creates: /opt/hadoop/spark-3.1.1-bin-hadoop3.2
+
+  - name: Create a symbolic link to latest hadoop
+    file:
+      src: /opt/hadoop/hadoop-3.3.0
+      dest: /opt/hadoop/latest
+      state: link
+
+  #- name: Create a symbolic link to latest spark
+  #  file:
+  #    src: /opt/hadoop/spark-3.1.1-bin-hadoop3.2
+  #    dest: /opt/hadoop/spark-latest
+  #    state: link
+
+  - name: Copy bashrc
+    copy:
+      src: /opt/hadoop/.bashrc
+      dest: /opt/hadoop/.bashrc
+      owner: hadoop
+      group: hadoop
+      mode: 0644
+
+  - name: Copy configuration files
+    copy:
+      src: "{{ item }}"
+      dest: "{{ item }}"
+      owner: hadoop
+      group: hadoop
+      mode: 0644
+    with_items:
+      - /opt/hadoop/latest/etc/hadoop/hadoop-env.sh
+      - /opt/hadoop/latest/etc/hadoop/core-site.xml
+      - /opt/hadoop/latest/etc/hadoop/hdfs-site.xml
+      - /opt/hadoop/latest/etc/hadoop/mapred-site.xml
+      - /opt/hadoop/latest/etc/hadoop/yarn-site.xml
+      - /opt/hadoop/latest/etc/hadoop/workers
+      #- /opt/hadoop/spark-latest/conf/spark-defaults.conf
+      #- /opt/hadoop/spark-latest/conf/spark-env.sh
+      - /etc/hosts
+
+  - name: Create a directory if it does not exist
+    file:
+      path: "{{ item }}" 
+      state: directory
+      owner: hadoop
+      group: hadoop
+      mode: '0755'
+    with_items:
+      - /opt/hadoop/data/hdfs/namenode
+      - /opt/hadoop/data/hdfs/datanode
+
+  - name:  Disable SELinux
+    selinux:
+      state: disabled
+
+  - name: Upgrade all packages
+    yum:
+      name: '*'
+      state: latest
+
+      #  - name: Open firewall ports
+      #    firewalld:
+      #      port: "{{ item }}"
+      #      permanent: true
+      #      state: enabled
+      #    with_items:
+      #      - 9800-9899/tcp
+      #      - 8400-8499/tcp
+      #      - 8100-8199/tcp
+      #      - 8000-8099/tcp
+      #      - 8788/tcp
+      #      - 10200/tcp
+      #      - 5020/tcp
+      #      - 45454/tcp
+      #      - 19888/tcp
+
+  handlers:
+  - name: restart sshd
+    service:
+      name: sshd
+      state: restarted
+
+
+      #  - name: ensure apache is at the latest version
+      #    yum:
+      #      name: httpd
+      #      state: latest
+      #  - name: write the apache config file
+      #    template:
+      #      src: /srv/httpd.j2
+      #      dest: /etc/httpd.conf
+      #
